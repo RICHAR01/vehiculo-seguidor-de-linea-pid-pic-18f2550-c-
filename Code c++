@@ -1,0 +1,71 @@
+#include <Segunda prueba.h>
+  #ZERO_RAM
+  #byte porta=0xf80 //Se declara la palabra porta con la direccion de memoria del puerto A
+  #byte portb=0xf81 //Se declara la palabra portb con la direccion de memoria del puerto B
+  #byte portc=0xf82 //Se declara la palabra portc con la direccion de memoria del puerto C
+  int velocidad=50; //La maxima velocidad puede ser 250
+  float kp=5.7;     //Ganancia de la parte Proporcional 
+  float kd=4.3;     //Ganancia de la parte Derivativa
+  float ki=0;       //Ganancia de la parte Integral
+  int8 lectura_portb; 
+  int entrada_sensor[15]={128,192,96,224,112,48,56,24,28,12,14,7,6,3,1}; //Posibles casos de lectura del sensor
+  signed int valor_error [15]={-7,-6,-5,-4,-3,-2,-1,0,1,2,3,4,5,6,7};    //Valor de error de cada caso correspondiente
+  int i;
+  signed int error_actual,error_anterior=0;
+  float calculo_PID,valor_pwm_izq,valor_pwm_der;
+
+
+#int_TIMER0
+void  TIMER0_isr(void) 
+{
+   calculo_PID=kp*(float)error_actual+(kd*((float)error_actual-(float)error_anterior))+(ki*((float)error_actual+(float)error_anterior));
+   valor_pwm_izq=(float)velocidad+calculo_PID; //Cálculo de valor pwm para motor izquierdo
+   valor_pwm_der=(float)velocidad-calculo_PID; //Calculo de valor pwm para motor derecho
+   if(valor_pwm_izq<0)         //limite de duty cycle inferior para motor izquierdo=0
+   valor_pwm_izq=0;
+   if(valor_pwm_izq>250)        //limite de duty cycle superior para motor izquierdo=62
+   valor_pwm_izq=250;
+   if(valor_pwm_der<0)         //limite de duty cycle inferior para motor derecho=0
+   valor_pwm_der=0;
+   if(valor_pwm_der>250)        //limite de duty cycle superior para motor izquierdo=62
+   valor_pwm_der=250;
+   set_pwm1_duty((int)valor_pwm_der); //La salida CCP1 corresponderá al motor izquierdo
+   set_pwm2_duty((int)valor_pwm_izq); //La salida CCP2 corresponderá al motor derecho
+  
+   error_anterior=error_actual; //El error actual será el error anterior en la siguiente iteración
+   set_timer0(61);              //Se vuelve a cargar el timer en 61 para iniciar a contar otros 10 ms
+}
+void main()
+{
+   setup_timer_0(RTCC_INTERNAL|RTCC_DIV_256|RTCC_8_bit); //Se configura el timer 0 para desbordamiento cada 10ms
+   enable_interrupts(INT_TIMER0); //Se habilita la interrupcion por timer 0
+   enable_interrupts(GLOBAL); //Se habilita la posibilidad de llamar interrupciones 
+   set_tris_a(0x00);          //Se declara el puerto A como salidas
+   output_a(0);               //Se inicializa el puerto A en bajo 
+   setup_ADC_ports(NO_ANALOGS); //Sin puertos analogos
+   set_tris_c(0x00);            //Se declara el puerto C como salidas
+   output_c(0);                 //Se inicializa el puerto C en bajo
+   setup_ccp1(CCP_PWM);                // Configure CCP1 as a PWM
+   setup_ccp2(CCP_PWM);                // Configure CCP2 as a PWM
+   setup_timer_2(T2_DIV_BY_1,249,1); //Se configura Timer 2 para una frecuencia PWM de 20Khz
+   setup_timer_3(T3_DISABLED|T3_DIV_BY_1); //Se deshabilta el uso del timer 3 
+   set_timer0(61);                         //Se comienza la cuenta del timer 0 en 61
+   porta=0b110010;     //Se pone en altos los pines A1,A4 Y A5             
+   output_high(pin_c7);// Se pone en alto el pin C7
+    
+   while (true)
+   {
+   set_tris_b(0x00); //Declaramos puerto B como salidas
+   portb=0xff;       //Se manda un alto a la salida de los sensores qtr8-rc
+   delay_us(10);     //Mantiene el alto por 10 microsegundos
+   portb=0x00;       //Se pone en salidas en bajo el puerto B
+   set_tris_b(0xff); //Se declara como entrada el puerto B
+   delay_us(500);    //Se esperan 500 microsegundos
+   lectura_portb=portb; //Se guarda la lectura de entrada del puerto B en ese instante
+  for(i=0;i<15;i++)
+     {
+      if(lectura_portb==entrada_sensor[i]) //Se compara la lectura del puerto B con los posibles casos de error
+      error_actual=valor_error [i];        //Se asigna el valor de error correspondiente a la variable error_actual
+     }
+   }
+}
